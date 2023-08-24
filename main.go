@@ -24,7 +24,7 @@ func main() {
 	}()
 
 	client.ListContainers()
-
+	client.Init()
 	contNum := 1
 
 	router := gin.Default()

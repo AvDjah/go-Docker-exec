@@ -36,6 +36,10 @@ var ImageName = "leetimg"
 
 var LiveContainers []*Container
 
+var LiveContainers2 map[string]*Container
+
+// TODO Replace List of Containers with A Map of Containers
+
 var Client *ClientType
 
 func New() *ClientType {
@@ -52,6 +56,26 @@ func New() *ClientType {
 	}
 	helpers.Check(err, "Creating Docker Client")
 	return Client
+}
+
+func (cli *ClientType) Init() {
+	list, err := cli.Client.ContainerList(context.TODO(), types.ContainerListOptions{})
+	helpers.Check(err, "Listing Container: init")
+
+	if LiveContainers2 == nil {
+		LiveContainers2 = make(map[string]*Container)
+	}
+
+	created := make(chan *Container, 1)
+
+	for _, val := range list {
+		name := val.Names[0]
+		go createContainerWorkers(val.ID, -1, created)
+		res := <-created
+		LiveContainers2[name] = res
+	}
+
+	fmt.Println(LiveContainers2)
 }
 
 func (cli *ClientType) ListContainers() []string {
@@ -97,7 +121,7 @@ func (cli *ClientType) StartContainer(num *int) {
 		if err == nil {
 			contID = res.ID
 			fmt.Println("Started Container: ", contName)
-			go createContainerWorkers(res.ID, *num)
+			go createContainerWorkers(res.ID, *num, nil)
 			break
 		} else {
 			fmt.Println("ISSUE RUNNING CONTAINER FOR N:", *num)
@@ -109,7 +133,7 @@ func (cli *ClientType) StartContainer(num *int) {
 	helpers.Check(err, "Starting Container")
 }
 
-func createContainerWorkers(ID string, num int) {
+func createContainerWorkers(ID string, num int, container chan *Container) {
 
 	receiver := make(chan Job, 10)
 
@@ -130,8 +154,54 @@ func createContainerWorkers(ID string, num int) {
 	}
 
 	LiveContainers = append(LiveContainers, &newContainer)
-
+	if container != nil {
+		container <- &newContainer
+	}
 	<-killContainer
+}
+
+func (cli *ClientType) KillContainer(name string) {
+
+	containerList, err := cli.Client.ContainerList(context.TODO(), types.ContainerListOptions{})
+	helpers.Check(err, "Fetching Container List : KillContainer")
+
+	done := make(chan string, 1)
+
+	ID := ""
+	for _, val := range containerList {
+		fmt.Println("FINDING:", val.Names[0], name)
+		if name == val.Names[0] {
+			ID = val.ID
+			go killWorker(ID, done)
+			helpers.Check(err, "Killing Container : KillContainer")
+			break
+		}
+	}
+
+	index := -1
+	for ind, val := range LiveContainers {
+		if val.ID == ID {
+			index = ind
+			val.Kill <- "Kill"
+			break
+		}
+	}
+	if index != -1 {
+		fmt.Println("Found and Killing at index: ", index)
+		LiveContainers[index] = LiveContainers[len(LiveContainers)-1]
+		LiveContainers = LiveContainers[:len(LiveContainers)-1]
+	}
+
+	<-done
+}
+
+func killWorker(ID string, done chan string) {
+	err := Client.Client.ContainerStop(context.TODO(), ID, container.StopOptions{})
+	helpers.Check(err, "Killing Container from goroutine")
+	fmt.Println("Killed")
+
+	done <- "Done"
+
 }
 
 func (cont *Container) worker(num int, receiver chan Job, contNum int) {
