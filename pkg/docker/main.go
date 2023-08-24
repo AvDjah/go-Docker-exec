@@ -38,6 +38,8 @@ var LiveContainers []*Container
 
 var LiveContainers2 map[string]*Container
 
+var ContainerLimit = 4
+
 // TODO Replace List of Containers with A Map of Containers
 
 var Client *ClientType
